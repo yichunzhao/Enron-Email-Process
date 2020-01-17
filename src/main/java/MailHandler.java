@@ -16,7 +16,8 @@ public class MailHandler implements IMailHandler {
         FROM("From:"),
         TO("To:"),
         SUBJECT("Subject:"),
-        TIME("Date:");
+        TIME("Date:"),
+        END("end");
 
         private String filedName;
 
@@ -76,7 +77,8 @@ public class MailHandler implements IMailHandler {
         try {
             lines = Files.readAllLines(path);
             System.out.println(lines);
-            parsingEmail(lines);
+            IMailInfo parsed = parsingEmail(lines);
+            System.out.println("pretty:" +parsed.pretty());
 
         } catch (IOException e) {
             e.printStackTrace();
@@ -87,7 +89,7 @@ public class MailHandler implements IMailHandler {
     //parsing a single mail here, which consists of lines
     private IMailInfo parsingEmail(List<String> lines) {
         //initial email field state.
-        EmailFieldState currentState = EmailFieldState.START;
+        currentState = EmailFieldState.START;
 
         //empty email data model
         MailInfo mailInfo = new MailInfo();
@@ -110,7 +112,8 @@ public class MailHandler implements IMailHandler {
                     case SUBJECT:
                         mailInfo.setSubject(extractSubject(line));
                         break;
-                    default:
+                    case END:
+                        break;
                 }
             } catch (InvalidEmailException | ParseException e) {
 
@@ -118,6 +121,8 @@ public class MailHandler implements IMailHandler {
                 //skip this mail
                 break;
             }
+
+            if (currentState.equals(EmailFieldState.END) ) break;
         }
 
         return mailInfo;
@@ -127,6 +132,7 @@ public class MailHandler implements IMailHandler {
 
         if (!line.startsWith(EmailFieldState.ID.filedName)) throw new InvalidEmailException("missing email id field");
         String[] results = line.split(":");
+        currentState = EmailFieldState.TIME;
 
         return results[1].trim();
     }
@@ -134,6 +140,8 @@ public class MailHandler implements IMailHandler {
     private String extractFrom(String line) throws InvalidEmailException {
         if (!line.startsWith(EmailFieldState.FROM.filedName)) throw new InvalidEmailException("missing From field");
         String[] results = line.split(":");
+        currentState = EmailFieldState.TO;
+
         return results[1].trim();
     }
 
@@ -141,7 +149,9 @@ public class MailHandler implements IMailHandler {
         if (!line.startsWith(EmailFieldState.TO.filedName)) throw new InvalidEmailException("missing To field");
         String[] results = line.split(":,");
         List<String> tos = Arrays.asList(results);
-        //tos.remove(0);
+        tos.remove(0);
+        currentState = EmailFieldState.SUBJECT;
+
         return tos;
     }
 
@@ -149,22 +159,24 @@ public class MailHandler implements IMailHandler {
         if (!line.startsWith(EmailFieldState.SUBJECT.filedName))
             throw new InvalidEmailException("missing Subject field");
         String[] results = line.split(":");
+        currentState = EmailFieldState.END;
         return results[1].trim();
     }
 
     private Date extractTime(String line) throws InvalidEmailException, ParseException {
         if (!line.startsWith(EmailFieldState.TIME.filedName)) throw new InvalidEmailException("missing Date field");
-        String[] results = line.split(":");
+        String[] results = line.split(EmailFieldState.TIME.filedName);
+
         String time = Optional.ofNullable(results[1]).orElseThrow(() -> new IllegalStateException("missing date info."));
 
-        Date date = new SimpleDateFormat("E, dd MMM yyyy HH:mm:ss").parse(time);
+        Date date = new SimpleDateFormat("E, dd MMM yyyy HH:mm:ss Z").parse(time);
         return date;
     }
 
     public static void main(String[] args) {
         Path rootDir = Paths.get("C:\\Users\\zhaoy\\Downloads\\enron_mail_20110402\\enron_mail_20110402\\maildir");
         MailHandler mailHandler = new MailHandler(rootDir);
-        mailHandler.doImport(2);
+        mailHandler.doImport(1);
 
     }
 
