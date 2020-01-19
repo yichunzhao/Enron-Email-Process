@@ -1,14 +1,24 @@
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.*;
 import java.util.stream.Stream;
 
+import static java.util.stream.Collectors.averagingDouble;
+import static java.util.stream.Collectors.toList;
+
+
 public class MailHandler implements IMailHandler {
 
+    //internal data structure to store MailInfo.
+    Map<String,List<IMailInfo>> internalMails = new HashMap<>();
+    List<IMailInfo> list = new ArrayList<>(100);
 
     private enum EmailFieldState {
         START("start"),
@@ -34,7 +44,6 @@ public class MailHandler implements IMailHandler {
 
     private EmailFieldState currentState;
 
-
     private Path rootDir;
 
     public MailHandler(Path rootDir) {
@@ -47,7 +56,6 @@ public class MailHandler implements IMailHandler {
 
         //loading the raw emails.
         loadEmails(rootDir, maxMails);
-
     }
 
     public List<IMailInfo> search(String emailAddress, Date maxTime) {
@@ -62,27 +70,29 @@ public class MailHandler implements IMailHandler {
         //traverse the directory tree.
         try (Stream<Path> allPaths = Files.walk(rootDir)) {
             allPaths.filter(p -> Files.isRegularFile(p) && p.toString().endsWith("_"))
-                    .limit(maxMails)
+                    .limit(maxMails).peek(path -> System.out.println(path))
                     .forEach(p -> readEmailLines(p));
 
         } catch (IOException e) {
             e.printStackTrace();
         }
-
     }
 
     //read an email in lines from its path.
     private List<String> readEmailLines(Path path) {
         List<String> lines = new ArrayList<>();
-        try {
-            lines = Files.readAllLines(path);
-            System.out.println(lines);
-            IMailInfo parsed = parsingEmail(lines);
-            System.out.println("pretty:" +parsed.pretty());
 
+        try {
+            lines = Files.readAllLines(path, StandardCharsets.US_ASCII);
+
+            IMailInfo parsed = parsingEmail(lines);
+            Optional.ofNullable(parsed).ifPresent(p -> list.add(p));
         } catch (IOException e) {
-            e.printStackTrace();
+            //e.printStackTrace();
+            System.out.println("Path: " + path);
+            System.out.println(e.getMessage());
         }
+
         return lines;
     }
 
@@ -95,6 +105,8 @@ public class MailHandler implements IMailHandler {
         MailInfo mailInfo = new MailInfo();
 
         for (String line : lines) {
+            if (currentState.equals(EmailFieldState.END)) break;
+
             try {
                 switch (currentState) {
                     case START:
@@ -112,24 +124,19 @@ public class MailHandler implements IMailHandler {
                     case SUBJECT:
                         mailInfo.setSubject(extractSubject(line));
                         break;
-                    case END:
-                        break;
                 }
             } catch (InvalidEmailException | ParseException e) {
-
                 mailInfo = null;
+
                 //skip this mail
                 break;
             }
-
-            if (currentState.equals(EmailFieldState.END) ) break;
         }
 
         return mailInfo;
     }
 
     private String extractMessageId(String line) throws InvalidEmailException {
-
         if (!line.startsWith(EmailFieldState.ID.filedName)) throw new InvalidEmailException("missing email id field");
         String[] results = line.split(":");
         currentState = EmailFieldState.TIME;
@@ -140,6 +147,8 @@ public class MailHandler implements IMailHandler {
     private String extractFrom(String line) throws InvalidEmailException {
         if (!line.startsWith(EmailFieldState.FROM.filedName)) throw new InvalidEmailException("missing From field");
         String[] results = line.split(":");
+
+        //next state
         currentState = EmailFieldState.TO;
 
         return results[1].trim();
@@ -147,9 +156,14 @@ public class MailHandler implements IMailHandler {
 
     private List<String> extractTo(String line) throws InvalidEmailException {
         if (!line.startsWith(EmailFieldState.TO.filedName)) throw new InvalidEmailException("missing To field");
-        String[] results = line.split(":,");
-        List<String> tos = Arrays.asList(results);
-        tos.remove(0);
+        String[] results = line.split("[:,]");
+
+        List<String> tos = Stream.of(results)
+                .map(e -> e.trim())
+                .filter(e -> !e.equals("To"))
+                .collect(toList());
+
+        //next state.
         currentState = EmailFieldState.SUBJECT;
 
         return tos;
@@ -159,7 +173,10 @@ public class MailHandler implements IMailHandler {
         if (!line.startsWith(EmailFieldState.SUBJECT.filedName))
             throw new InvalidEmailException("missing Subject field");
         String[] results = line.split(":");
+
+        //next state
         currentState = EmailFieldState.END;
+
         return results[1].trim();
     }
 
@@ -167,17 +184,34 @@ public class MailHandler implements IMailHandler {
         if (!line.startsWith(EmailFieldState.TIME.filedName)) throw new InvalidEmailException("missing Date field");
         String[] results = line.split(EmailFieldState.TIME.filedName);
 
-        String time = Optional.ofNullable(results[1]).orElseThrow(() -> new IllegalStateException("missing date info."));
+        String time = Optional.ofNullable(results[1])
+                .orElseThrow(() -> new IllegalStateException("missing date info.")).trim();
 
-        Date date = new SimpleDateFormat("E, dd MMM yyyy HH:mm:ss Z").parse(time);
-        return date;
+        //next state
+        currentState = EmailFieldState.FROM;
+
+        return new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss Z (z)").parse(time);
+    }
+
+    public int listSize() {
+        return list.size();
+    }
+
+    public List<IMailInfo> getMails() {
+        return list;
     }
 
     public static void main(String[] args) {
+        Instant start = Instant.now();
         Path rootDir = Paths.get("C:\\Users\\zhaoy\\Downloads\\enron_mail_20110402\\enron_mail_20110402\\maildir");
         MailHandler mailHandler = new MailHandler(rootDir);
-        mailHandler.doImport(1);
+        mailHandler.doImport(3);
+        Instant end = Instant.now();
 
+        System.out.println("Time cost: " + Duration.between(start, end).toMillis());
+        System.out.println(mailHandler.listSize());
+        long num = mailHandler.getMails().stream().filter(x -> x.getTo().size() > 1).count();
+        System.out.println(num);
     }
 
 }
