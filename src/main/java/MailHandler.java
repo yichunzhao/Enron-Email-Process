@@ -10,15 +10,24 @@ import java.time.Instant;
 import java.util.*;
 import java.util.stream.Stream;
 
-import static java.util.stream.Collectors.averagingDouble;
 import static java.util.stream.Collectors.toList;
 
 
 public class MailHandler implements IMailHandler {
 
     //internal data structure to store MailInfo.
-    Map<String,List<IMailInfo>> internalMails = new HashMap<>();
-    List<IMailInfo> list = new ArrayList<>(100);
+
+    //a list mail received on the same date.
+    //List<IMailInfo> listMails = new ArrayList<>(100);
+
+    //a tree map sorted by date
+    //Map<Date, List<IMailInfo>> mailSameDate = new TreeMap<>();
+
+    //Map<From, List>
+    //Map<String, Map<Date, List<IMailInfo>>> mails = new HashMap<>();
+
+    //Map<String, List<IMailInfo>> allMails = new HashMap<>();
+    Map<String, Set<IMailInfo>> allMails = new HashMap<>();
 
     private enum EmailFieldState {
         START("start"),
@@ -86,7 +95,9 @@ public class MailHandler implements IMailHandler {
             lines = Files.readAllLines(path, StandardCharsets.US_ASCII);
 
             IMailInfo parsed = parsingEmail(lines);
-            Optional.ofNullable(parsed).ifPresent(p -> list.add(p));
+            //Optional.ofNullable(parsed).ifPresent(p -> list.add(p));
+            //Optional.ofNullable(parsed).ifPresent(p -> allMails.put(p.getFrom(), p));
+            Optional.ofNullable(parsed).ifPresent(p -> storeMailInternally(p));
         } catch (IOException e) {
             //e.printStackTrace();
             System.out.println("Path: " + path);
@@ -94,6 +105,17 @@ public class MailHandler implements IMailHandler {
         }
 
         return lines;
+    }
+
+    //storing a mail into the internal data structure.
+    private void storeMailInternally(IMailInfo parsed) {
+        if (this.allMails.containsKey(parsed.getFrom())) {
+            allMails.get(parsed.getFrom()).add(parsed);
+        } else {
+            Set<IMailInfo> listSameFrom = new TreeSet<>(Comparator.comparing(IMailInfo::getTime).reversed());
+            listSameFrom.add(parsed);
+            allMails.put(parsed.getFrom(), listSameFrom);
+        }
     }
 
     //parsing a single mail here, which consists of lines
@@ -110,7 +132,7 @@ public class MailHandler implements IMailHandler {
             try {
                 switch (currentState) {
                     case START:
-                        extractMessageId(line);
+                        mailInfo.setMessageId(extractMessageId(line));
                         break;
                     case TIME:
                         mailInfo.setTime(extractTime(line));
@@ -193,25 +215,16 @@ public class MailHandler implements IMailHandler {
         return new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss Z (z)").parse(time);
     }
 
-    public int listSize() {
-        return list.size();
-    }
-
-    public List<IMailInfo> getMails() {
-        return list;
-    }
 
     public static void main(String[] args) {
         Instant start = Instant.now();
         Path rootDir = Paths.get("C:\\Users\\zhaoy\\Downloads\\enron_mail_20110402\\enron_mail_20110402\\maildir");
         MailHandler mailHandler = new MailHandler(rootDir);
-        mailHandler.doImport(3);
+        mailHandler.doImport(100);
         Instant end = Instant.now();
 
         System.out.println("Time cost: " + Duration.between(start, end).toMillis());
-        System.out.println(mailHandler.listSize());
-        long num = mailHandler.getMails().stream().filter(x -> x.getTo().size() > 1).count();
-        System.out.println(num);
+
     }
 
 }
