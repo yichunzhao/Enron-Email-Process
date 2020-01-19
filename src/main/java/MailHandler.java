@@ -9,7 +9,6 @@ import java.text.SimpleDateFormat;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static java.util.stream.Collectors.toList;
@@ -18,17 +17,6 @@ import static java.util.stream.Collectors.toList;
 public class MailHandler implements IMailHandler {
 
     //internal data structure to store MailInfo.
-
-    //a list mail received on the same date.
-    //List<IMailInfo> listMails = new ArrayList<>(100);
-
-    //a tree map sorted by date
-    //Map<Date, List<IMailInfo>> mailSameDate = new TreeMap<>();
-
-    //Map<From, List>
-    //Map<String, Map<Date, List<IMailInfo>>> mails = new HashMap<>();
-
-    //Map<String, List<IMailInfo>> allMails = new HashMap<>();
     Map<String, Set<IMailInfo>> allMails = new HashMap<>();
 
     private enum EmailFieldState {
@@ -69,16 +57,19 @@ public class MailHandler implements IMailHandler {
         loadEmails(rootDir, maxMails);
     }
 
+    //search in all received by an email-address
     public List<IMailInfo> search(String emailAddress, Date maxTime) {
         if (!allMails.containsKey(emailAddress))
             throw new IllegalArgumentException("the email address is not existed");
 
         Set<IMailInfo> found = allMails.get(emailAddress);
-        return found.stream().filter(x -> x.getTime().before(maxTime)).collect(Collectors.toList());
+        return found.stream().filter(x -> x.getTime().before(maxTime)).collect(toList());
     }
 
     public List<IMailInfo> sample(Integer nSamples) {
-        return null;
+        List<IMailInfo> samples = allMails.values().stream().flatMap(x -> x.stream()).limit(nSamples).collect(toList());
+        if (nSamples > samples.size()) throw new IllegalArgumentException("nSamples > the size of all mails.");
+        return samples;
     }
 
     private void loadEmails(Path rootDir, Integer maxMails) {
@@ -102,8 +93,6 @@ public class MailHandler implements IMailHandler {
             lines = Files.readAllLines(path, StandardCharsets.US_ASCII);
 
             IMailInfo parsed = parsingEmail(lines);
-            //Optional.ofNullable(parsed).ifPresent(p -> list.add(p));
-            //Optional.ofNullable(parsed).ifPresent(p -> allMails.put(p.getFrom(), p));
             Optional.ofNullable(parsed).ifPresent(p -> storeMailInternally(p));
         } catch (IOException e) {
             //e.printStackTrace();
@@ -233,7 +222,8 @@ public class MailHandler implements IMailHandler {
 
         System.out.println("Time cost: " + Duration.between(start, end).toMillis());
 
-        //search by email address(From) and MaxTime
+        System.out.println("+++ search by email address(From) and MaxTime +++");
+
         String target = "phillip.allen@enron.com";
         String time = "Fri Aug 25 2000 12:00:00";
         DateFormat parser = new SimpleDateFormat("EEE MMM dd yyyy HH:mm:ss");
@@ -245,8 +235,12 @@ public class MailHandler implements IMailHandler {
         }
 
         List<IMailInfo> results = mailHandler.search(target, maxDate);
+        results.forEach(e-> System.out.println(e.pretty()));
 
+        System.out.println("+++ sample nInteger +++");
 
+        System.out.println("sampled: ");
+        mailHandler.sample(20).forEach(e-> System.out.println(e.pretty()));
     }
 
 }
