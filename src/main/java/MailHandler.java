@@ -3,11 +3,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static java.util.stream.Collectors.toList;
@@ -68,7 +70,11 @@ public class MailHandler implements IMailHandler {
     }
 
     public List<IMailInfo> search(String emailAddress, Date maxTime) {
-        return null;
+        if (!allMails.containsKey(emailAddress))
+            throw new IllegalArgumentException("the email address is not existed");
+
+        Set<IMailInfo> found = allMails.get(emailAddress);
+        return found.stream().filter(x -> x.getTime().before(maxTime)).collect(Collectors.toList());
     }
 
     public List<IMailInfo> sample(Integer nSamples) {
@@ -79,7 +85,8 @@ public class MailHandler implements IMailHandler {
         //traverse the directory tree.
         try (Stream<Path> allPaths = Files.walk(rootDir)) {
             allPaths.filter(p -> Files.isRegularFile(p) && p.toString().endsWith("_"))
-                    .limit(maxMails).peek(path -> System.out.println(path))
+                    .limit(maxMails)
+                    //.peek(path -> System.out.println(path))
                     .forEach(p -> readEmailLines(p));
 
         } catch (IOException e) {
@@ -218,12 +225,27 @@ public class MailHandler implements IMailHandler {
 
     public static void main(String[] args) {
         Instant start = Instant.now();
+        //load all enron mails from a root dir, and converting into an internal data structure.
         Path rootDir = Paths.get("C:\\Users\\zhaoy\\Downloads\\enron_mail_20110402\\enron_mail_20110402\\maildir");
         MailHandler mailHandler = new MailHandler(rootDir);
         mailHandler.doImport(100);
         Instant end = Instant.now();
 
         System.out.println("Time cost: " + Duration.between(start, end).toMillis());
+
+        //search by email address(From) and MaxTime
+        String target = "phillip.allen@enron.com";
+        String time = "Fri Aug 25 2000 12:00:00";
+        DateFormat parser = new SimpleDateFormat("EEE MMM dd yyyy HH:mm:ss");
+        Date maxDate = new Date();
+        try {
+            maxDate = parser.parse(time);
+        } catch (ParseException e) {
+            e.printStackTrace();
+        }
+
+        List<IMailInfo> results = mailHandler.search(target, maxDate);
+
 
     }
 
